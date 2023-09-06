@@ -46,11 +46,12 @@ def get_coordinates_of_clusters(frame):
 
 class VideoProcessor:
     def __init__(self):
-        self.initial_boxes = {}  # Stores the initial boxes as 'Player' or 'Dealer'
+        self.player_midpoint = None  # Initialize the player's midpoint
+        self.dealer_midpoint = None  # Initialize the dealer's midpoint
 
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
-        height, width = img.shape[:2]
+        height, width = img.shape[:2]  # get dimensions for drawing rectangles
 
         coordinates = get_coordinates_of_clusters(img)
         print(coordinates)
@@ -59,6 +60,12 @@ class VideoProcessor:
         sorted_coordinates = sorted(
             coordinates, key=lambda x: x[2] * x[3], reverse=True
         )
+        # Clear history if no shapes are detected
+        if len(sorted_coordinates) == 0:
+            self.player_midpoint = None
+            self.dealer_midpoint = None
+            print("Cleared history.")
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
 
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.7
@@ -69,13 +76,36 @@ class VideoProcessor:
             top_left = (x, y)
             bottom_right = (x + w, y + h)
             cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 2)
+            midpoint = (x + w // 2, y + h // 2)
+            print("Midpoint: ", midpoint)
 
-            box_key = f"{x},{y},{w},{h}"
+            if self.player_midpoint is None or self.dealer_midpoint is None:
+                label = "Player Hand" if i == 0 else "Dealer Hand" if i == 1 else ""
+                if label == "Player Hand":
+                    self.player_midpoint = midpoint
+                    print("Initialized player midpoint to: ", self.player_midpoint)
+                elif label == "Dealer Hand":
+                    self.dealer_midpoint = midpoint
+                    print("Initialized dealer midpoint to: ", self.dealer_midpoint)
+            elif self.player_midpoint is not None and self.dealer_midpoint is not None:
+                # Compute distances to player and dealer midpoints
+                distance_to_player = np.sqrt(
+                    (midpoint[0] - self.player_midpoint[0]) ** 2
+                    + (midpoint[1] - self.player_midpoint[1]) ** 2
+                )
+                distance_to_dealer = np.sqrt(
+                    (midpoint[0] - self.dealer_midpoint[0]) ** 2
+                    + (midpoint[1] - self.dealer_midpoint[1]) ** 2
+                )
 
-            if box_key not in self.initial_boxes:
-                self.initial_boxes[box_key] = "Player" if i == 0 else "Dealer"
+                print("Distance to player: ", distance_to_player)
+                print("Distance to dealer: ", distance_to_dealer)
 
-            label = self.initial_boxes.get(box_key, "")
+                label = (
+                    "Player Hand"
+                    if distance_to_player < distance_to_dealer
+                    else "Dealer Hand"
+                )
 
             if label:
                 text_size = cv2.getTextSize(label, font, font_scale, thickness)[0]
