@@ -45,9 +45,12 @@ def get_coordinates_of_clusters(frame):
 
 
 class VideoProcessor:
+    def __init__(self):
+        self.initial_boxes = {}  # Stores the initial boxes as 'Player' or 'Dealer'
+
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
-        height, width = img.shape[:2]  # get dimensions for drawing rectangles
+        height, width = img.shape[:2]
 
         coordinates = get_coordinates_of_clusters(img)
         print(coordinates)
@@ -67,7 +70,13 @@ class VideoProcessor:
             bottom_right = (x + w, y + h)
             cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 2)
 
-            label = "Player Hand" if i == 0 else "Dealer Hand" if i == 1 else ""
+            box_key = f"{x},{y},{w},{h}"
+
+            if box_key not in self.initial_boxes:
+                self.initial_boxes[box_key] = "Player" if i == 0 else "Dealer"
+
+            label = self.initial_boxes.get(box_key, "")
+
             if label:
                 text_size = cv2.getTextSize(label, font, font_scale, thickness)[0]
                 bg_rect_top_left = (x - padding, y - text_size[1] - 10 - padding)
