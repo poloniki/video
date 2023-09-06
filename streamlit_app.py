@@ -32,7 +32,7 @@ def get_coordinates_of_clusters(frame):
 
         # Change these thresholds as per your requirements
         area_threshold = 0.01 * preprocessed_image_size
-        aspect_ratio_threshold = 0.25
+        aspect_ratio_threshold = 0.35
 
         if (
             area > area_threshold
@@ -57,6 +57,11 @@ class VideoProcessor:
             coordinates, key=lambda x: x[2] * x[3], reverse=True
         )
 
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        thickness = 1
+        padding = 5  # Padding around the text
+
         for i, (x, y, w, h) in enumerate(sorted_coordinates):
             top_left = (x, y)
             bottom_right = (x + w, y + h)
@@ -64,15 +69,21 @@ class VideoProcessor:
 
             label = "Player Hand" if i == 0 else "Dealer Hand" if i == 1 else ""
             if label:
+                text_size = cv2.getTextSize(label, font, font_scale, thickness)[0]
+                bg_rect_top_left = (x - padding, y - text_size[1] - 10 - padding)
+                bg_rect_bottom_right = (x + text_size[0] + padding, y - 10 + padding)
+                cv2.rectangle(
+                    img, bg_rect_top_left, bg_rect_bottom_right, (0, 0, 0), -1
+                )  # Black background
                 cv2.putText(
                     img,
                     label,
                     (x, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
+                    font,
+                    font_scale,
                     (255, 255, 255),
-                    1,
-                )
+                    thickness,
+                )  # White text
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
