@@ -32,7 +32,7 @@ def get_coordinates_of_clusters(frame):
 
         # Change these thresholds as per your requirements
         area_threshold = 0.01 * preprocessed_image_size
-        aspect_ratio_threshold = 0.35
+        aspect_ratio_threshold = 0.5
 
         if (
             area > area_threshold
@@ -54,41 +54,43 @@ class VideoProcessor:
         height, width = img.shape[:2]  # get dimensions for drawing rectangles
 
         coordinates = get_coordinates_of_clusters(img)
-        print(coordinates)
 
         # Sort coordinates based on area in descending order
         sorted_coordinates = sorted(
             coordinates, key=lambda x: x[2] * x[3], reverse=True
         )
-        # Clear history if no shapes are detected
-        if len(sorted_coordinates) == 0:
-            self.player_midpoint = None
-            self.dealer_midpoint = None
-            print("Cleared history.")
-            return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+        # Initialize temporary midpoints
+        temp_player_midpoint = None
+        temp_dealer_midpoint = None
 
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.7
         thickness = 1
         padding = 5  # Padding around the text
 
-        for i, (x, y, w, h) in enumerate(sorted_coordinates):
-            top_left = (x, y)
-            bottom_right = (x + w, y + h)
-            cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 2)
-            midpoint = (x + w // 2, y + h // 2)
-            print("Midpoint: ", midpoint)
+        if len(sorted_coordinates) >= 2:
+            for i, (x, y, w, h) in enumerate(
+                sorted_coordinates[:2]
+            ):  # Only consider the two largest shapes
+                midpoint = (x + w // 2, y + h // 2)
 
-            if self.player_midpoint is None or self.dealer_midpoint is None:
-                label = "Player Hand" if i == 0 else "Dealer Hand" if i == 1 else ""
-                if label == "Player Hand":
-                    self.player_midpoint = midpoint
-                    print("Initialized player midpoint to: ", self.player_midpoint)
-                elif label == "Dealer Hand":
-                    self.dealer_midpoint = midpoint
-                    print("Initialized dealer midpoint to: ", self.dealer_midpoint)
-            elif self.player_midpoint is not None and self.dealer_midpoint is not None:
-                # Compute distances to player and dealer midpoints
+                if i == 0:
+                    temp_player_midpoint = midpoint
+                elif i == 1:
+                    temp_dealer_midpoint = midpoint
+
+        # If both classes are present, initialize the midpoints
+        if temp_player_midpoint and temp_dealer_midpoint:
+            self.player_midpoint = temp_player_midpoint
+            self.dealer_midpoint = temp_dealer_midpoint
+
+        for i, (x, y, w, h) in enumerate(sorted_coordinates):
+            midpoint = (x + w // 2, y + h // 2)
+
+            # Your logic to decide the label based on proximity to initialized midpoints
+            label = ""
+            if self.player_midpoint and self.dealer_midpoint:
                 distance_to_player = np.sqrt(
                     (midpoint[0] - self.player_midpoint[0]) ** 2
                     + (midpoint[1] - self.player_midpoint[1]) ** 2
@@ -97,17 +99,18 @@ class VideoProcessor:
                     (midpoint[0] - self.dealer_midpoint[0]) ** 2
                     + (midpoint[1] - self.dealer_midpoint[1]) ** 2
                 )
-
-                print("Distance to player: ", distance_to_player)
-                print("Distance to dealer: ", distance_to_dealer)
-
                 label = (
                     "Player Hand"
                     if distance_to_player < distance_to_dealer
                     else "Dealer Hand"
                 )
 
+            # Draw rectangles and labels only for large shapes
             if label:
+                top_left = (x, y)
+                bottom_right = (x + w, y + h)
+                cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 2)
+
                 text_size = cv2.getTextSize(label, font, font_scale, thickness)[0]
                 bg_rect_top_left = (x - padding, y - text_size[1] - 10 - padding)
                 bg_rect_bottom_right = (x + text_size[0] + padding, y - 10 + padding)
