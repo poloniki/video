@@ -2,12 +2,10 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 import av
 import cv2
+import os
 import numpy as np
 from roboflow import Roboflow
-import os
-import shutil
 import requests
-import json
 
 
 @st.cache_resource
@@ -24,13 +22,6 @@ model = get_model()
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
-
-
-def convert_cards_api(card):
-    try:
-        return int(card[0])
-    except:
-        return card[0]
 
 
 def get_coordinates_of_clusters(frame):
@@ -51,7 +42,7 @@ def get_coordinates_of_clusters(frame):
         aspect_ratio_h_w = h / w
 
         # Change these thresholds as per your requirements
-        area_threshold = 0.01 * preprocessed_image_size
+        area_threshold = 0.03 * preprocessed_image_size
         aspect_ratio_threshold = 0.4
 
         if (
@@ -68,16 +59,13 @@ class VideoProcessor:
     def __init__(self):
         self.player_midpoint = None  # Initialize the player's midpoint
         self.dealer_midpoint = None  # Initialize the dealer's midpoint
+        self.frame = None  # Initialize a frame
+
         self.frame_counter = 0  # Initialize the frame counter
 
     def recv(self, frame):
         self.frame_counter += 1
         img = frame.to_ndarray(format="bgr24")
-
-        tmp_folder = "tmp_folder"
-
-        cv2.imwrite(os.path.join(tmp_folder, "temp_image.png"), img)
-        print("File is beeing stored")
 
         coordinates = get_coordinates_of_clusters(img)
 
@@ -103,17 +91,18 @@ class VideoProcessor:
 
                 if i == 0:
                     temp_player_midpoint = midpoint
-
                 elif i == 1:
                     temp_dealer_midpoint = midpoint
 
-        # If both classes are present, initialize the midpoints
+        # If both classes are present, initialize the midpoints and the frame
         if temp_player_midpoint and temp_dealer_midpoint:
             self.player_midpoint = temp_player_midpoint
             self.dealer_midpoint = temp_dealer_midpoint
-            coor_json = {"player": temp_player_midpoint, "dealer": temp_dealer_midpoint}
-            with open("coor_json.json", "w") as f:
-                json.dump(coor_json, f)
+            self.frame = np.copy(img)
+
+            # Only assign to global var to be able to access for button
+            # player_midpoint = self.player_midpoint
+            # dealer_midpoint = self.dealer_midpoint
 
         for i, (x, y, w, h) in enumerate(sorted_coordinates):
             midpoint = (x + w // 2, y + h // 2)
@@ -159,119 +148,110 @@ class VideoProcessor:
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
-video = VideoProcessor
-
-button = st.button("Predict")
-
-
-def calculate_distance(x1, y1, x2, y2):
-    return np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
-
-
-if button:
-    shutil.copyfile("tmp_folder/temp_image.png", "tmp_folder/temp_image_temp.png")
-    shutil.copyfile("coor_json.json", "coor_json_tmp.json")
-
-    with open("coor_json_tmp.json", "r") as f:
-        loaded_coor_json = json.load(f)
-
-    player_coordinates, dealer_coordinates = (
-        loaded_coor_json["player"],
-        loaded_coor_json["dealer"],
-    )
-
-    predictions = model.predict(
-        os.path.join("tmp_folder", "temp_image_temp.png"),
-        confidence=40,
-        overlap=30,
-    ).json()["predictions"]
-    st.write(predictions)
-
-    # To hold unique cards
-    unique_cards = set()
-    dealer_cards = []
-    player_cards = []
-    for box in predictions:
-        # Add the unique class to the set
-        unique_cards.add(box["class"])
-        box_mid_x = box["x"] + box["width"] / 2
-        box_mid_y = box["y"] + box["height"] / 2
-
-        distance_to_player = calculate_distance(
-            player_coordinates["x"], player_coordinates["y"], box_mid_x, box_mid_y
-        )
-        distance_to_dealer = calculate_distance(
-            dealer_coordinates["x"], dealer_coordinates["y"], box_mid_x, box_mid_y
-        )
-
-        if distance_to_player < distance_to_dealer:
-            player_cards.append(box)
-        else:
-            dealer_cards.append(box)
-
-    # Streamlit code to display unique cards
-    st.title("Unique Cards Recognized")
-
-    for card in unique_cards:
-        suit = card[-1]  # The last character represents the suit
-
-        if suit == "D":
-            icon = ":diamonds:"
-        elif suit == "H":
-            icon = ":hearts:"
-        elif suit == "S":
-            icon = ":spades:"
-        elif suit == "C":
-            icon = ":clubs:"
-        else:
-            icon = ":question:"
-
-        st.write(f"{icon} {card}")
-
-    dealer_converted = [convert_cards_api(card) for card in dealer_cards]
-    player_converted = [convert_cards_api(card) for card in player_cards]
-    json_input = {"dealer": dealer_converted, "player": player_converted}
-
-    response = requests.post(
-        "https://moverecommender-7brpco5hnq-ew.a.run.app/predict_move",
-        json=json_input,
-    ).json()
-    next_move = response["next_move"]
-
-    if next_move == "Dh":
-        st.success("Hit!")
-    else:
-        st.warning("Stay")
+st.title("The ultimate Blackjack AI :heart:")
+st.write(
+    "Still quite shitty, but has charme - IMPORTANT: We do not take any responsibility for the absurd amount of losses one will occur when actually trying to use this AI"
+)
 
 webrtc_ctx = webrtc_streamer(
     key="WYH",
     mode=WebRtcMode.SENDRECV,
     rtc_configuration=RTC_CONFIGURATION,
-    video_processor_factory=video,
+    video_processor_factory=VideoProcessor,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=False,
 )
 
+st.markdown(
+    """
+<style>
+div.stButton > button:first-child {
+    background-color: rgb(204, 49, 49);
+}
+</style>""",
+    unsafe_allow_html=True,
+)
 
-#     if len(predictions) > 0:
-#         for box in predictions:
-#             x, y, width, height = (
-#                 box["x"],
-#                 box["y"],
-#                 box["width"],
-#                 box["height"],
-#             )
-#             confidence, label = box["confidence"], box["class"]
+st.sidebar.title("Press predict, when you are ready! :sunglasses:")
+st.sidebar.title("⬇️⬇️⬇️")
+button = st.sidebar.button("Predict")
 
-#             cv2.rectangle(
-#                 img, (x, y), (x + width, y + height), (0, 255, 0), 2
-#             )
-#             cv2.putText(
-#                 img,
-#                 f"{label} {confidence:.2f}",
-#                 (x, y - 10),
-#                 cv2.FONT_HERSHEY_SIMPLEX,
-#                 0.8,
-#                 (255, 255, 255),
-#                 2,
-#             )
+
+if button:
+    # save queued values
+    frame_at_button_press = webrtc_ctx.video_transformer.frame
+    player_midpoint_at_button_press = webrtc_ctx.video_transformer.player_midpoint
+    dealer_midpoint_at_button_press = webrtc_ctx.video_transformer.dealer_midpoint
+
+    cv2.imwrite("temp.png", frame_at_button_press)
+
+    predictions = model.predict(
+        "temp.png",
+        confidence=40,
+        overlap=30,
+    ).json()["predictions"]
+
+    os.remove("temp.png")
+
+    player_cards = []
+    dealer_cards = []
+
+    for card in predictions:
+        x = card["x"]
+        y = card["y"]
+        class_ = card["class"]
+
+        distance_to_player = np.sqrt(
+            (x - player_midpoint_at_button_press[0]) ** 2
+            + (y - player_midpoint_at_button_press[1]) ** 2
+        )
+
+        distance_to_dealer = np.sqrt(
+            (x - dealer_midpoint_at_button_press[0]) ** 2
+            + (y - dealer_midpoint_at_button_press[1]) ** 2
+        )
+
+        if distance_to_player >= distance_to_dealer:
+            dealer_cards.append(class_)
+        else:
+            player_cards.append(class_)
+
+    st.sidebar.title("Player cards:")
+
+    for card in list(set(player_cards)):
+        emoji = (
+            "♣️"
+            if card[-1] == "C"
+            else "♠️"
+            if card[-1] == "S"
+            else "♥️"
+            if card[-1] == "H"
+            else "♦️"
+            if card[-1] == "D"
+            else ""
+        )
+
+        st.sidebar.title(card[:-1] + emoji)
+
+    st.sidebar.title("Dealer cards:")
+
+    for card in list(set(dealer_cards)):
+        emoji = (
+            "♣️"
+            if card[-1] == "C"
+            else "♠️"
+            if card[-1] == "S"
+            else "♥️"
+            if card[-1] == "H"
+            else "♦️"
+            if card[-1] == "D"
+            else ""
+        )
+
+        st.sidebar.title(card[:-1] + emoji)
+
+    response = requests.post(
+        "https://recommend-okumlrfyiq-ew.a.run.app/predict_move",
+        json={"dealer": dealer_cards, "player": player_cards},
+    )
+    st.write(response.json)
