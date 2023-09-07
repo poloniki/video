@@ -60,19 +60,24 @@ class VideoProcessor:
         self.player_midpoint = None  # Initialize the player's midpoint
         self.dealer_midpoint = None  # Initialize the dealer's midpoint
         self.frame = None  # Initialize a frame
-
         self.frame_counter = 0  # Initialize the frame counter
+        self.update_interval = 30  # Update contours every 10 frames
+        self.stable_coordinates = None  # Initialize the stable coordinates
 
     def recv(self, frame):
-        self.frame_counter += 1
         img = frame.to_ndarray(format="bgr24")
 
-        coordinates = get_coordinates_of_clusters(img)
+        if self.frame_counter % self.update_interval == 0:
+            coordinates = get_coordinates_of_clusters(img)
+            sorted_coordinates = sorted(
+                coordinates, key=lambda x: x[2] * x[3], reverse=True
+            )
+            self.stable_coordinates = sorted_coordinates
 
-        # Sort coordinates based on area in descending order
-        sorted_coordinates = sorted(
-            coordinates, key=lambda x: x[2] * x[3], reverse=True
-        )
+        else:
+            sorted_coordinates = self.stable_coordinates
+
+        print("here")
 
         # Initialize temporary midpoints
         temp_player_midpoint = None
@@ -144,6 +149,8 @@ class VideoProcessor:
                     (255, 255, 255),
                     thickness,
                 )  # White text
+
+        self.frame_counter += 1
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
