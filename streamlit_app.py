@@ -42,8 +42,8 @@ def get_coordinates_of_clusters(frame):
         aspect_ratio_h_w = h / w
 
         # Change these thresholds as per your requirements
-        area_threshold = 0.03 * preprocessed_image_size
-        aspect_ratio_threshold = 0.4
+        area_threshold = 0.01 * preprocessed_image_size
+        aspect_ratio_threshold = 0.6
 
         if (
             area > area_threshold
@@ -61,7 +61,7 @@ class VideoProcessor:
         self.dealer_midpoint = None  # Initialize the dealer's midpoint
         self.frame = None  # Initialize a frame
         self.frame_counter = 0  # Initialize the frame counter
-        self.update_interval = 30  # Update contours every 10 frames
+        self.update_interval = 10  # Update contours every 10 frames
         self.stable_coordinates = None  # Initialize the stable coordinates
 
     def recv(self, frame):
