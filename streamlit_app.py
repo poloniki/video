@@ -6,6 +6,8 @@ import numpy as np
 from roboflow import Roboflow
 import os
 import shutil
+import requests
+import json
 
 
 @st.cache_resource
@@ -22,6 +24,13 @@ model = get_model()
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
+
+
+def convert_cards_api(card):
+    try:
+        return int(card[0])
+    except:
+        return card[0]
 
 
 def get_coordinates_of_clusters(frame):
@@ -70,14 +79,6 @@ class VideoProcessor:
         cv2.imwrite(os.path.join(tmp_folder, "temp_image.png"), img)
         print("File is beeing stored")
 
-        # if self.frame_counter % 300 != 0:
-        #     predictions = model.predict(
-        #         os.path.join(tmp_folder, "temp_image.png"),
-        #         confidence=40,
-        #         overlap=30,
-        #     ).json()["predictions"]
-        #     print(predictions)
-
         coordinates = get_coordinates_of_clusters(img)
 
         # Sort coordinates based on area in descending order
@@ -102,6 +103,7 @@ class VideoProcessor:
 
                 if i == 0:
                     temp_player_midpoint = midpoint
+
                 elif i == 1:
                     temp_dealer_midpoint = midpoint
 
@@ -109,6 +111,9 @@ class VideoProcessor:
         if temp_player_midpoint and temp_dealer_midpoint:
             self.player_midpoint = temp_player_midpoint
             self.dealer_midpoint = temp_dealer_midpoint
+            coor_json = {"player": temp_player_midpoint, "dealer": temp_dealer_midpoint}
+            with open("coor_json.json", "w") as f:
+                json.dump(coor_json, f)
 
         for i, (x, y, w, h) in enumerate(sorted_coordinates):
             midpoint = (x + w // 2, y + h // 2)
@@ -154,10 +159,26 @@ class VideoProcessor:
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
+video = VideoProcessor
+
 button = st.button("Predict")
+
+
+def calculate_distance(x1, y1, x2, y2):
+    return np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+
 
 if button:
     shutil.copyfile("tmp_folder/temp_image.png", "tmp_folder/temp_image_temp.png")
+    shutil.copyfile("coor_json.json", "coor_json_tmp.json")
+
+    with open("coor_json_tmp.json", "r") as f:
+        loaded_coor_json = json.load(f)
+
+    player_coordinates, dealer_coordinates = (
+        loaded_coor_json["player"],
+        loaded_coor_json["dealer"],
+    )
 
     predictions = model.predict(
         os.path.join("tmp_folder", "temp_image_temp.png"),
@@ -166,12 +187,67 @@ if button:
     ).json()["predictions"]
     st.write(predictions)
 
+    # To hold unique cards
+    unique_cards = set()
+    dealer_cards = []
+    player_cards = []
+    for box in predictions:
+        # Add the unique class to the set
+        unique_cards.add(box["class"])
+        box_mid_x = box["x"] + box["width"] / 2
+        box_mid_y = box["y"] + box["height"] / 2
+
+        distance_to_player = calculate_distance(
+            player_coordinates["x"], player_coordinates["y"], box_mid_x, box_mid_y
+        )
+        distance_to_dealer = calculate_distance(
+            dealer_coordinates["x"], dealer_coordinates["y"], box_mid_x, box_mid_y
+        )
+
+        if distance_to_player < distance_to_dealer:
+            player_cards.append(box)
+        else:
+            dealer_cards.append(box)
+
+    # Streamlit code to display unique cards
+    st.title("Unique Cards Recognized")
+
+    for card in unique_cards:
+        suit = card[-1]  # The last character represents the suit
+
+        if suit == "D":
+            icon = ":diamonds:"
+        elif suit == "H":
+            icon = ":hearts:"
+        elif suit == "S":
+            icon = ":spades:"
+        elif suit == "C":
+            icon = ":clubs:"
+        else:
+            icon = ":question:"
+
+        st.write(f"{icon} {card}")
+
+    dealer_converted = [convert_cards_api(card) for card in dealer_cards]
+    player_converted = [convert_cards_api(card) for card in player_cards]
+    json_input = {"dealer": dealer_converted, "player": player_converted}
+
+    response = requests.post(
+        "https://moverecommender-7brpco5hnq-ew.a.run.app/predict_move",
+        json=json_input,
+    ).json()
+    next_move = response["next_move"]
+
+    if next_move == "Dh":
+        st.success("Hit!")
+    else:
+        st.warning("Stay")
 
 webrtc_ctx = webrtc_streamer(
     key="WYH",
     mode=WebRtcMode.SENDRECV,
     rtc_configuration=RTC_CONFIGURATION,
-    video_processor_factory=VideoProcessor,
+    video_processor_factory=video,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=False,
 )
