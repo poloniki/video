@@ -4,9 +4,6 @@ matplotlib
 PyYAML
 requests
 scipy
-tqdm
-seaborn
 opencv-python-headless==4.6.0.66
-imutils
 roboflow
 shutil
