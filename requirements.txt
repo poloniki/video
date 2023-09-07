@@ -4,5 +4,7 @@ matplotlib
 PyYAML
 requests
 scipy
-opencv-python-headless==4.6.0.66
+# opencv-python-headless==4.6.0.66
+opencv-python-headless==4.5.1.48
 roboflow
+imutils
