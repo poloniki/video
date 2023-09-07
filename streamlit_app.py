@@ -1,16 +1,27 @@
 import streamlit as st
-import cv2
-import random
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 import av
+import cv2
+import numpy as np
+from roboflow import Roboflow
+import os
+import shutil
+
+
+@st.cache_resource
+def get_model():
+    rf = Roboflow(api_key="id4SPNy9RKoICEjeFPxd")
+    project = rf.workspace().project("playing-cards-ow27d")
+    model = project.version(4).model
+    return model
+
+
+model = get_model()
+
 
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
-
-import imutils
-import cv2
-import numpy as np
 
 
 def get_coordinates_of_clusters(frame):
@@ -32,7 +43,7 @@ def get_coordinates_of_clusters(frame):
 
         # Change these thresholds as per your requirements
         area_threshold = 0.01 * preprocessed_image_size
-        aspect_ratio_threshold = 0.5
+        aspect_ratio_threshold = 0.4
 
         if (
             area > area_threshold
@@ -48,10 +59,24 @@ class VideoProcessor:
     def __init__(self):
         self.player_midpoint = None  # Initialize the player's midpoint
         self.dealer_midpoint = None  # Initialize the dealer's midpoint
+        self.frame_counter = 0  # Initialize the frame counter
 
     def recv(self, frame):
+        self.frame_counter += 1
         img = frame.to_ndarray(format="bgr24")
-        height, width = img.shape[:2]  # get dimensions for drawing rectangles
+
+        tmp_folder = "tmp_folder"
+
+        cv2.imwrite(os.path.join(tmp_folder, "temp_image.png"), img)
+        print("File is beeing stored")
+
+        # if self.frame_counter % 300 != 0:
+        #     predictions = model.predict(
+        #         os.path.join(tmp_folder, "temp_image.png"),
+        #         confidence=40,
+        #         overlap=30,
+        #     ).json()["predictions"]
+        #     print(predictions)
 
         coordinates = get_coordinates_of_clusters(img)
 
@@ -88,7 +113,6 @@ class VideoProcessor:
         for i, (x, y, w, h) in enumerate(sorted_coordinates):
             midpoint = (x + w // 2, y + h // 2)
 
-            # Your logic to decide the label based on proximity to initialized midpoints
             label = ""
             if self.player_midpoint and self.dealer_midpoint:
                 distance_to_player = np.sqrt(
@@ -130,6 +154,19 @@ class VideoProcessor:
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
+button = st.button("Predict")
+
+if button:
+    shutil.copyfile("tmp_folder/temp_image.png", "tmp_folder/temp_image_temp.png")
+
+    predictions = model.predict(
+        os.path.join("tmp_folder", "temp_image_temp.png"),
+        confidence=40,
+        overlap=30,
+    ).json()["predictions"]
+    st.write(predictions)
+
+
 webrtc_ctx = webrtc_streamer(
     key="WYH",
     mode=WebRtcMode.SENDRECV,
@@ -138,3 +175,27 @@ webrtc_ctx = webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False},
     async_processing=False,
 )
+
+
+#     if len(predictions) > 0:
+#         for box in predictions:
+#             x, y, width, height = (
+#                 box["x"],
+#                 box["y"],
+#                 box["width"],
+#                 box["height"],
+#             )
+#             confidence, label = box["confidence"], box["class"]
+
+#             cv2.rectangle(
+#                 img, (x, y), (x + width, y + height), (0, 255, 0), 2
+#             )
+#             cv2.putText(
+#                 img,
+#                 f"{label} {confidence:.2f}",
+#                 (x, y - 10),
+#                 cv2.FONT_HERSHEY_SIMPLEX,
+#                 0.8,
+#                 (255, 255, 255),
+#                 2,
+#             )
